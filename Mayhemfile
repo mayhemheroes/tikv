@@ -3,4 +3,4 @@ target: tikv
 duration: 90
 
 cmds:
-  - cmd: /tikv/target/x86_64-unknown-linux-gnu/debug/fuzz_codec_bytes
+  - cmd: /tikv/target/x86_64-unknown-linux-gnu/debug/fuzz_codec_bytes /tikv/fuzz/fuzzer-libfuzzer/corpus-fuzz_codec_bytes /tikv/fuzz/common/seeds/fuzz_codec_bytes/
