@@ -1,0 +1,6 @@
+project: Gediminas19/tikv
+target: tikv
+duration: 90
+
+cmds:
+  - cmd: /tikv/target/x86_64-unknown-linux-gnu/debug/fuzz_codec_bytes
