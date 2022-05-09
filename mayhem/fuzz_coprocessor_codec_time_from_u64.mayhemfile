@@ -1,0 +1,5 @@
+project: tikv
+target: fuzz_coprocessor_codec_time_from_u64
+
+cmds:
+  - cmd: /tikv/target/x86_64-unknown-linux-gnu/debug/fuzz_coprocessor_codec_time_from_u64 /tikv/fuzz/fuzzer-libfuzzer/corpus-fuzz_coprocessor_codec_time_from_u64
