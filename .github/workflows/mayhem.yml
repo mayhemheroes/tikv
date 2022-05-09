@@ -41,17 +41,30 @@ jobs:
         uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
         with:
           context: .
+          file: mayhem/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Start analysis
+  test:
+    needs: [ build ]
+    run-on: ubuntu-latest
+    strategy:
+      matrix:
+        mayhemfile: [fuzz_codec_bytes, fuzz_coprocessor_codec_row_v2_binary_search, fuzz_codec_number, fuzz_coprocessor_codec_time_from_parse, fuzz_coprocessor_codec_decimal, fuzz_coprocessor_codec_time_from_u64, fuzz_coprocessor_codec_duration_from_nanos, fuzz_hash_decimal, fuzz_coprocessor_codec_duration_from_parse]
+    steps:
+      - name: Start analysis for ${{ matrix.mayhemfile }}
         uses: ForAllSecure/mcode-action@v1
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/${{ matrix.mayhemfile }}
           sarif-output: sarif
 
+  upload:
+    needs: [ test ]
+    run-on: ubuntu-latest
+    steps:
       - name: Upload SARIF file(s)
         uses: github/codeql-action/upload-sarif@v1
         with:
