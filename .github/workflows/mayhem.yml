@@ -20,8 +20,6 @@ jobs:
         include:
           - os: ubuntu-latest
             triplet: x64-linux
-    outputs:
-      metatags: ${{ steps.meta.outputs.tags }}
 
     steps:
       - uses: actions/checkout@v2
@@ -48,25 +46,78 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  test:
-    needs: [ build ]
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        mayhemfile: [fuzz_codec_bytes, fuzz_coprocessor_codec_row_v2_binary_search, fuzz_codec_number, fuzz_coprocessor_codec_time_from_parse, fuzz_coprocessor_codec_decimal, fuzz_coprocessor_codec_time_from_u64, fuzz_coprocessor_codec_duration_from_nanos, fuzz_hash_decimal, fuzz_coprocessor_codec_duration_from_parse]
-    steps:
-      - name: Start analysis for ${{ matrix.mayhemfile }}
+      - name: Start analysis for fuzz_codec_bytes
         uses: ForAllSecure/mcode-action@v1
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
-          args: --image ${{ needs.build.outputs.metatags }}
-                --file mayhem/${{ matrix.mayhemfile }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_codec_bytes
           sarif-output: sarif
 
-  upload:
-    needs: [ test ]
-    runs-on: ubuntu-latest
-    steps:
+      - name: Start analysis for fuzz_coprocessor_codec_row_v2_binary_search
+        uses: ForAllSecure/mcode-action@v1
+        with:
+          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_coprocessor_codec_row_v2_binary_search
+          sarif-output: sarif
+
+      - name: Start analysis for fuzz_codec_number
+        uses: ForAllSecure/mcode-action@v1
+        with:
+          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_codec_number
+          sarif-output: sarif
+
+      - name: Start analysis for fuzz_coprocessor_codec_time_from_parse
+        uses: ForAllSecure/mcode-action@v1
+        with:
+          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_coprocessor_codec_time_from_parse
+          sarif-output: sarif
+
+      - name: Start analysis for fuzz_coprocessor_codec_decimal
+        uses: ForAllSecure/mcode-action@v1
+        with:
+          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_coprocessor_codec_decimal
+          sarif-output: sarif
+
+      - name: Start analysis for fuzz_coprocessor_codec_time_from_u64
+        uses: ForAllSecure/mcode-action@v1
+        with:
+          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_coprocessor_codec_time_from_u64
+          sarif-output: sarif
+
+      - name: Start analysis for fuzz_coprocessor_codec_duration_from_nanos
+        uses: ForAllSecure/mcode-action@v1
+        with:
+          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_coprocessor_codec_duration_from_nanos
+          sarif-output: sarif
+
+      - name: Start analysis for fuzz_hash_decimal
+        uses: ForAllSecure/mcode-action@v1
+        with:
+          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_hash_decimal
+          sarif-output: sarif
+
+      - name: Start analysis for fuzz_coprocessor_codec_duration_from_parse
+        uses: ForAllSecure/mcode-action@v1
+        with:
+          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          args: --image ${{ steps.meta.outputs.tags }}
+                --file mayhem/fuzz_coprocessor_codec_duration_from_parse
+          sarif-output: sarif
+
       - name: Upload SARIF file(s)
         uses: github/codeql-action/upload-sarif@v1
         with:
