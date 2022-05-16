@@ -16,7 +16,7 @@ use engine_traits::PerfLevel;
 use file_system::{IOPriority, IORateLimitMode};
 use kvproto::encryptionpb::EncryptionMethod;
 use pd_client::Config as PdConfig;
-use raft_log_engine::RecoveryMode;
+use raft_log_engine::{ReadableSize as RaftEngineReadableSize, RecoveryMode};
 use raftstore::{
     coprocessor::{Config as CopConfig, ConsistencyCheckMethod},
     store::Config as RaftstoreConfig,
@@ -239,6 +239,7 @@ fn test_serde_custom_tikv_config() {
         reactive_memory_lock_tick_interval: ReadableDuration::millis(566),
         reactive_memory_lock_timeout_tick: 8,
         report_region_buckets_tick_interval: ReadableDuration::secs(1234),
+        max_snapshot_file_raw_size: ReadableSize::gb(10),
     };
     value.pd = PdConfig::new(vec!["example.com:443".to_owned()]);
     let titan_cf_config = TitanCfConfig {
@@ -633,6 +634,7 @@ fn test_serde_custom_tikv_config() {
     raft_engine_config.recovery_mode = RecoveryMode::TolerateTailCorruption;
     raft_engine_config.recovery_read_block_size.0 = ReadableSize::kb(1).0;
     raft_engine_config.recovery_threads = 2;
+    raft_engine_config.memory_limit = Some(RaftEngineReadableSize::gb(1));
     value.storage = StorageConfig {
         data_dir: "/var".to_owned(),
         gc_ratio_threshold: 1.2,
@@ -676,6 +678,7 @@ fn test_serde_custom_tikv_config() {
             export_priority: IOPriority::High,
             other_priority: IOPriority::Low,
         },
+        background_error_recovery_window: ReadableDuration::hours(1),
     };
     value.coprocessor = CopConfig {
         split_region_on_table: false,
@@ -722,6 +725,10 @@ fn test_serde_custom_tikv_config() {
             home: "/root/hadoop".to_string(),
             linux_user: "hadoop".to_string(),
         },
+        ..Default::default()
+    };
+    value.backup_stream = BackupStreamConfig {
+        num_threads: 8,
         ..Default::default()
     };
     value.import = ImportConfig {
