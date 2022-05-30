@@ -2,4 +2,4 @@ project: tikv
 target: fuzz_coprocessor_codec_duration_from_parse
 
 cmds:
-  - cmd: /tikv/target/x86_64-unknown-linux-gnu/debug/fuzz_coprocessor_codec_duration_from_parse /tikv/fuzz/fuzzer-libfuzzer/corpus-fuzz_coprocessor_codec_duration_from_parse
+  - cmd: /fuzz_coprocessor_codec_duration_from_parse

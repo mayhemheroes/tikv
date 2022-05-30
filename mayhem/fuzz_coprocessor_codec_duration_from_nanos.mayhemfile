@@ -2,4 +2,4 @@ project: tikv
 target: fuzz_coprocessor_codec_duration_from_nanos
 
 cmds:
-  - cmd: /tikv/target/x86_64-unknown-linux-gnu/debug/fuzz_coprocessor_codec_duration_from_nanos /tikv/fuzz/fuzzer-libfuzzer/corpus-fuzz_coprocessor_codec_duration_from_nanos
+  - cmd: /fuzz_coprocessor_codec_duration_from_nanos
