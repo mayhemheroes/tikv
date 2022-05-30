@@ -1,4 +1,4 @@
-FROM fuzzers/cargo-fuzz:0.10.0
+FROM fuzzers/cargo-fuzz:0.10.0 as builder
 
 ## Install build dependencies.
 RUN apt-get update && \
@@ -11,7 +11,7 @@ RUN rustup toolchain install nightly
 
 # use template file to generate fuzzer source for each target
 WORKDIR /tikv/fuzz/fuzzer-libfuzzer
-RUN for i in fuzz_codec_bytes fuzz_codec_number fuzz_coprocessor_codec_decimal fuzz_hash_decimal fuzz_coprocessor_codec_time_from_parse fuzz_coprocessor_codec_time_from_u64 fuzz_coprocessor_codec_duration_from_nanos fuzz_coprocessor_codec_duration_from_parse fuzz_coprocessor_codec_row_v2_binary_search; do cp template.rs src/bin/$i.rs; sed -i "s/__FUZZ_CLI_TARGET__/$i/g" src/bin/$i.rs; mkdir corpus-$i; done
+RUN for i in fuzz_codec_bytes fuzz_codec_number fuzz_coprocessor_codec_decimal fuzz_hash_decimal fuzz_coprocessor_codec_time_from_parse fuzz_coprocessor_codec_time_from_u64 fuzz_coprocessor_codec_duration_from_nanos fuzz_coprocessor_codec_duration_from_parse fuzz_coprocessor_codec_row_v2_binary_search; do cp template.rs src/bin/$i.rs; sed -i "s/__FUZZ_CLI_TARGET__/$i/g" src/bin/$i.rs; done
 
 # build all the fuzzers
 RUN RUSTFLAGS="--cfg fuzzing \
@@ -30,5 +30,5 @@ RUN RUSTFLAGS="--cfg fuzzing \
     ASAN_OPTIONS=" detect_odr_violation=0" \
     cargo build --target x86_64-unknown-linux-gnu --bins
 
-# Set to fuzz!
-ENTRYPOINT []
+FROM ubuntu:20.04
+COPY --from=builder /tikv/target/x86_64-unknown-linux-gnu/debug /

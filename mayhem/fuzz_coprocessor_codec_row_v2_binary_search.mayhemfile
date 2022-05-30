@@ -2,4 +2,4 @@ project: tikv
 target: fuzz_coprocessor_codec_row_v2_binary_search
 
 cmds:
-  - cmd: /tikv/target/x86_64-unknown-linux-gnu/debug/fuzz_coprocessor_codec_row_v2_binary_search /tikv/fuzz/fuzzer-libfuzzer/corpus-fuzz_coprocessor_codec_row_v2_binary_search
+  - cmd: /fuzz_coprocessor_codec_row_v2_binary_search
