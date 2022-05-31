@@ -1,0 +1,5 @@
+project: tikv
+target: fuzz_coprocessor_codec_duration_from_nanos
+
+cmds:
+  - cmd: /fuzz_coprocessor_codec_duration_from_nanos

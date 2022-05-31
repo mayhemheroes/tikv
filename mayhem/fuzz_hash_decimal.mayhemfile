@@ -1,0 +1,5 @@
+project: tikv
+target: fuzz_hash_decimal
+
+cmds:
+  - cmd: /fuzz_hash_decimal

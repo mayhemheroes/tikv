@@ -1,0 +1,5 @@
+project: tikv
+target: fuzz_coprocessor_codec_time_from_u64
+
+cmds:
+  - cmd: /fuzz_coprocessor_codec_time_from_u64

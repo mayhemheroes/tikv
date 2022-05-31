@@ -1,0 +1,5 @@
+project: tikv
+target: fuzz_coprocessor_codec_row_v2_binary_search
+
+cmds:
+  - cmd: /fuzz_coprocessor_codec_row_v2_binary_search

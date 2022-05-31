@@ -1,0 +1,5 @@
+project: tikv
+target: fuzz_codec_bytes
+
+cmds:
+  - cmd: /fuzz_codec_bytes

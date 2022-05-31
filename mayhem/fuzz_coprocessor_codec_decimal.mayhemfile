@@ -1,0 +1,5 @@
+project: tikv
+target: fuzz_coprocessor_codec_decimal
+
+cmds:
+  - cmd: /fuzz_coprocessor_codec_decimal
