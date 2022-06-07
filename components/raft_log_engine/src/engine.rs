@@ -19,7 +19,7 @@ use raft_engine::{
     env::{DefaultFileSystem, FileSystem, Handle, WriteExt},
     Command, Engine as RawRaftEngine, Error as RaftEngineError, LogBatch, MessageExt,
 };
-pub use raft_engine::{Config as RaftEngineConfig, RecoveryMode};
+pub use raft_engine::{Config as RaftEngineConfig, ReadableSize, RecoveryMode};
 use tikv_util::Either;
 
 #[derive(Clone)]
@@ -443,8 +443,6 @@ impl RaftEngine for RaftLogEngine {
     fn flush_stats(&self) -> Option<CacheStats> {
         None
     }
-
-    fn stop(&self) {}
 
     fn dump_stats(&self) -> Result<String> {
         // Raft engine won't dump anything.

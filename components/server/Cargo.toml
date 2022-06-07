@@ -30,10 +30,12 @@ test-engines-panic = [
   "tikv/test-engines-panic",
 ]
 nortcheck = ["engine_rocks/nortcheck"]
+backup-stream-debug = ["backup-stream/backup-stream-debug"]
 
 [dependencies]
 api_version = { path = "../api_version" }
 backup = { path = "../backup", default-features = false }
+backup-stream = { path = "../backup-stream", default-features = false }
 causal_ts = { path = "../causal_ts" }
 cdc = { path = "../cdc", default-features = false }
 chrono = "0.4"
@@ -44,6 +46,7 @@ crossbeam = "0.8"
 encryption = { path = "../encryption", default-features = false }
 encryption_export = { path = "../encryption/export", default-features = false }
 engine_rocks = { path = "../engine_rocks", default-features = false }
+engine_rocks_helper = { path = "../engine_rocks_helper" }
 engine_traits = { path = "../engine_traits", default-features = false }
 error_code = { path = "../error_code", default-features = false }
 file_system = { path = "../file_system", default-features = false }
@@ -67,7 +70,7 @@ raftstore = { path = "../raftstore", default-features = false }
 rand = "0.8"
 resolved_ts = { path = "../../components/resolved_ts", default-features = false }
 resource_metering = { path = "../resource_metering" }
-security = { path = "../security", default-features = false }
+security = { path = "../security", default-features = false, features = ["tonic"] }
 serde_json = "1.0"
 slog = { version = "2.3", features = ["max_level_trace", "release_max_level_debug"] }
 slog-global = { version = "0.1", git = "https://github.com/breeswish/slog-global.git", rev = "d592f88e4dbba5eb439998463054f1a44fbf17b9" }
