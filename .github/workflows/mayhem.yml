@@ -52,7 +52,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_codec_bytes
+                --file mayhem/fuzz_codec_bytes.mayhemfile
                 --duration 300
           sarif-output: sarif
 
@@ -61,7 +61,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_coprocessor_codec_row_v2_binary_search
+                --file mayhem/fuzz_coprocessor_codec_row_v2_binary_search.mayhemfile
                 --duration 300
           sarif-output: sarif
 
@@ -70,7 +70,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_codec_number
+                --file mayhem/fuzz_codec_number.mayhemfile
                 --duration 300
           sarif-output: sarif
 
@@ -79,7 +79,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_coprocessor_codec_time_from_parse
+                --file mayhem/fuzz_coprocessor_codec_time_from_parse.mayhemfile
                 --duration 300
           sarif-output: sarif
 
@@ -88,7 +88,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_coprocessor_codec_decimal
+                --file mayhem/fuzz_coprocessor_codec_decimal.mayhemfile
                 --duration 300
           sarif-output: sarif
 
@@ -97,7 +97,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_coprocessor_codec_time_from_u64
+                --file mayhem/fuzz_coprocessor_codec_time_from_u64.mayhemfile
                 --duration 300
           sarif-output: sarif
 
@@ -106,7 +106,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_coprocessor_codec_duration_from_nanos
+                --file mayhem/fuzz_coprocessor_codec_duration_from_nanos.mayhemfile
                 --duration 300
           sarif-output: sarif
 
@@ -115,7 +115,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_hash_decimal
+                --file mayhem/fuzz_hash_decimal.mayhemfile
                 --duration 300
           sarif-output: sarif
 
@@ -124,7 +124,7 @@ jobs:
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
           args: --image ${{ steps.meta.outputs.tags }}
-                --file mayhem/fuzz_coprocessor_codec_duration_from_parse
+                --file mayhem/fuzz_coprocessor_codec_duration_from_parse.mayhemfile
                 --duration 300
           sarif-output: sarif
 
