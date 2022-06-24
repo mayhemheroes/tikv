@@ -11,7 +11,10 @@ RUN rustup toolchain install nightly
 
 # use template file to generate fuzzer source for each target
 WORKDIR /tikv/fuzz/fuzzer-libfuzzer
-RUN for i in fuzz_codec_bytes fuzz_codec_number fuzz_coprocessor_codec_decimal fuzz_hash_decimal fuzz_coprocessor_codec_time_from_parse fuzz_coprocessor_codec_time_from_u64 fuzz_coprocessor_codec_duration_from_nanos fuzz_coprocessor_codec_duration_from_parse fuzz_coprocessor_codec_row_v2_binary_search; do cp template.rs src/bin/$i.rs; sed -i "s/__FUZZ_CLI_TARGET__/$i/g" src/bin/$i.rs; done
+RUN for i in $(sed -rn "s/pub fn (fuzz_\w+)\(.*/\1/p" ../targets/mod.rs); do \
+      cp template.rs src/bin/$i.rs; \
+      sed -i "s/__FUZZ_CLI_TARGET__/$i/g" src/bin/$i.rs; \
+    done
 
 # build all the fuzzers
 RUN RUSTFLAGS="--cfg fuzzing \
