@@ -9,6 +9,7 @@ use std::{
 };
 
 use api_version::{dispatch_api_version, KvFormat};
+use causal_ts::CausalTsProvider;
 use collections::{HashMap, HashSet};
 use concurrency_manager::ConcurrencyManager;
 use encryption_export::DataKeyManager;
@@ -60,11 +61,17 @@ use tikv::{
         ConnectionBuilder, Error, Node, PdStoreAddrResolver, RaftClient, RaftKv,
         Result as ServerResult, Server, ServerTransport,
     },
-    storage::{self, kv::SnapContext, txn::flow_controller::FlowController, Engine},
+    storage::{
+        self,
+        kv::SnapContext,
+        txn::flow_controller::{EngineFlowController, FlowController},
+        Engine,
+    },
 };
 use tikv_util::{
     config::VersionTrack,
     quota_limiter::QuotaLimiter,
+    sys::thread::ThreadBuildWrapper,
     time::ThreadReadId,
     worker::{Builder as WorkerBuilder, LazyWorker},
     HandyRwLock,
@@ -147,6 +154,7 @@ pub struct ServerCluster {
     raft_client: RaftClient<AddressMap, RaftStoreBlackHole, RocksEngine>,
     concurrency_managers: HashMap<u64, ConcurrencyManager>,
     env: Arc<Environment>,
+    pub causal_ts_providers: HashMap<u64, Arc<dyn CausalTsProvider>>,
 }
 
 impl ServerCluster {
@@ -188,6 +196,7 @@ impl ServerCluster {
             concurrency_managers: HashMap::default(),
             env,
             txn_extra_schedulers: HashMap::default(),
+            causal_ts_providers: HashMap::default(),
         }
     }
 
@@ -213,6 +222,10 @@ impl ServerCluster {
 
     pub fn get_concurrency_manager(&self, node_id: u64) -> ConcurrencyManager {
         self.concurrency_managers.get(&node_id).unwrap().clone()
+    }
+
+    pub fn get_causal_ts_provider(&self, node_id: u64) -> Option<Arc<dyn CausalTsProvider>> {
+        self.causal_ts_providers.get(&node_id).cloned()
     }
 
     fn init_resource_metering(
@@ -278,11 +291,6 @@ impl ServerCluster {
 
         // Create coprocessor.
         let mut coprocessor_host = CoprocessorHost::new(router.clone(), cfg.coprocessor.clone());
-        if ApiVersion::V2 == F::TAG {
-            let causal_ts_provider = Arc::new(causal_ts::tests::TestProvider::default());
-            let causal_ob = causal_ts::CausalObserver::new(causal_ts_provider);
-            causal_ob.register_to(&mut coprocessor_host);
-        }
         let region_info_accessor = RegionInfoAccessor::new(&mut coprocessor_host);
 
         if let Some(hooks) = self.coprocessor_hooks.get(&node_id) {
@@ -346,6 +354,21 @@ impl ServerCluster {
             None
         };
 
+        if ApiVersion::V2 == F::TAG {
+            let causal_ts_provider = Arc::new(
+                block_on(causal_ts::BatchTsoProvider::new_opt(
+                    self.pd_client.clone(),
+                    cfg.causal_ts.renew_interval.0,
+                    cfg.causal_ts.renew_batch_min_size,
+                ))
+                .unwrap(),
+            );
+            self.causal_ts_providers
+                .insert(node_id, causal_ts_provider.clone());
+            let causal_ob = causal_ts::CausalObserver::new(causal_ts_provider);
+            causal_ob.register_to(&mut coprocessor_host);
+        }
+
         // Start resource metering.
         let (res_tag_factory, collector_reg_handle, rsmeter_cleanup) =
             self.init_resource_metering(&cfg.resource_metering);
@@ -358,7 +381,11 @@ impl ServerCluster {
             cfg.quota.foreground_cpu_time,
             cfg.quota.foreground_write_bandwidth,
             cfg.quota.foreground_read_bandwidth,
+            cfg.quota.background_cpu_time,
+            cfg.quota.background_write_bandwidth,
+            cfg.quota.background_read_bandwidth,
             cfg.quota.max_delay_duration,
+            cfg.quota.enable_auto_tune,
         ));
         let store = create_raft_storage::<_, _, _, F>(
             engine,
@@ -367,7 +394,7 @@ impl ServerCluster {
             lock_mgr.clone(),
             concurrency_manager.clone(),
             lock_mgr.get_storage_dynamic_configs(),
-            Arc::new(FlowController::empty()),
+            Arc::new(FlowController::Singleton(EngineFlowController::empty())),
             pd_sender,
             res_tag_factory.clone(),
             quota_limiter.clone(),
@@ -392,6 +419,7 @@ impl ServerCluster {
         };
         let import_service = ImportSstService::new(
             cfg.import.clone(),
+            cfg.raft_store.raft_entry_max_size,
             sim_router.clone(),
             engines.kv.clone(),
             Arc::clone(&importer),
@@ -407,6 +435,7 @@ impl ServerCluster {
             .max_write_bytes_per_sec(cfg.server.snap_max_write_bytes_per_sec.0 as i64)
             .max_total_size(cfg.server.snap_max_total_size.0)
             .encryption_key_manager(key_manager)
+            .max_per_file_size(cfg.raft_store.max_snapshot_file_raw_size.0)
             .build(tmp_str);
         self.snap_mgrs.insert(node_id, snap_mgr.clone());
         let server_cfg = Arc::new(VersionTrack::new(cfg.server.clone()));
@@ -429,6 +458,8 @@ impl ServerCluster {
             TokioBuilder::new_multi_thread()
                 .thread_name(thd_name!("debugger"))
                 .worker_threads(1)
+                .after_start_wrapper(|| {})
+                .before_stop_wrapper(|| {})
                 .build()
                 .unwrap(),
         );
@@ -443,7 +474,13 @@ impl ServerCluster {
         let apply_router = system.apply_router();
         // Create node.
         let mut raft_store = cfg.raft_store.clone();
-        raft_store.validate().unwrap();
+        raft_store
+            .validate(
+                cfg.coprocessor.region_split_size,
+                cfg.coprocessor.enable_region_bucket,
+                cfg.coprocessor.region_bucket_size,
+            )
+            .unwrap();
         let health_service = HealthService::default();
         let mut node = Node::new(
             system,

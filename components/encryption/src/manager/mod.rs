@@ -17,7 +17,7 @@ use fail::fail_point;
 use file_system::File;
 use kvproto::encryptionpb::{DataKey, EncryptionMethod, FileDictionary, FileInfo, KeyDictionary};
 use protobuf::Message;
-use tikv_util::{box_err, debug, error, info, thd_name, warn};
+use tikv_util::{box_err, debug, error, info, sys::thread::StdThreadBuildWrapper, thd_name, warn};
 
 use crate::{
     config::EncryptionConfig,
@@ -209,12 +209,12 @@ impl Dicts {
         ENCRYPTION_FILE_NUM_GAUGE.set(file_num);
 
         if method != EncryptionMethod::Plaintext {
-            info!("new encrypted file";
+            debug!("new encrypted file";
                   "fname" => fname,
                   "method" => format!("{:?}", method),
                   "iv" => hex::encode(iv.as_slice()));
         } else {
-            info!("new plaintext file"; "fname" => fname);
+            debug!("new plaintext file"; "fname" => fname);
         }
         Ok(file)
     }
@@ -242,9 +242,9 @@ impl Dicts {
         file_dict_file.remove(fname)?;
         ENCRYPTION_FILE_NUM_GAUGE.set(file_num);
         if file.method != compat(EncryptionMethod::Plaintext) {
-            info!("delete encrypted file"; "fname" => fname);
+            debug!("delete encrypted file"; "fname" => fname);
         } else {
-            info!("delete plaintext file"; "fname" => fname);
+            debug!("delete plaintext file"; "fname" => fname);
         }
         Ok(())
     }
@@ -557,7 +557,7 @@ impl DataKeyManager {
         let (rotate_terminal, rx) = channel::bounded(1);
         let background_worker = std::thread::Builder::new()
             .name(thd_name!("enc:key"))
-            .spawn(move || {
+            .spawn_wrapper(move || {
                 run_background_rotate_work(dict_clone, method, &*master_key, rx);
             })?;
 

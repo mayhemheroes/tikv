@@ -520,12 +520,13 @@ where
             self.pending_ssts = vec![];
         }
         if !self.kv_wb_mut().is_empty() {
+            self.perf_context.start_observe();
             let mut write_opts = engine_traits::WriteOptions::new();
             write_opts.set_sync(need_sync);
             self.kv_wb().write_opt(&write_opts).unwrap_or_else(|e| {
                 panic!("failed to write to engine: {:?}", e);
             });
-            self.perf_context.report_metrics();
+            self.perf_context.report_metrics(&[]); // TODO: pass in request trackers
             self.sync_log_hint = false;
             let data_size = self.kv_wb().data_size();
             if data_size > APPLY_WB_SHRINK_SIZE {
@@ -1076,7 +1077,10 @@ where
 
             return self.process_raft_cmd(apply_ctx, index, term, cmd);
         }
-        // TOOD(cdc): should we observe empty cmd, aka leader change?
+
+        // we should observe empty cmd, aka leader change,
+        // read index during confchange, or other situations.
+        apply_ctx.host.on_empty_cmd(&self.region, index, term);
 
         self.apply_state.set_applied_index(index);
         self.applied_index_term = term;
@@ -2928,6 +2932,10 @@ impl<S: Snapshot> Apply<S> {
         assert_eq!(self.region_id, other.region_id);
         assert_eq!(self.peer_id, other.peer_id);
         if self.entries_size + other.entries_size <= MAX_APPLY_BATCH_SIZE {
+            if other.bucket_meta.is_some() {
+                self.bucket_meta = other.bucket_meta.take();
+            }
+
             assert!(other.term >= self.term);
             self.term = other.term;
 
@@ -3021,6 +3029,8 @@ pub struct GenSnapTask {
     snap_notifier: SyncSender<RaftSnapshot>,
     // indicates whether the snapshot is triggered due to load balance
     for_balance: bool,
+    // the store id the snapshot will be sent to
+    to_store_id: u64,
 }
 
 impl GenSnapTask {
@@ -3029,6 +3039,7 @@ impl GenSnapTask {
         index: Arc<AtomicU64>,
         canceled: Arc<AtomicBool>,
         snap_notifier: SyncSender<RaftSnapshot>,
+        to_store_id: u64,
     ) -> GenSnapTask {
         GenSnapTask {
             region_id,
@@ -3036,6 +3047,7 @@ impl GenSnapTask {
             canceled,
             snap_notifier,
             for_balance: false,
+            to_store_id,
         }
     }
 
@@ -3065,6 +3077,7 @@ impl GenSnapTask {
             // This snapshot may be held for a long time, which may cause too many
             // open files in rocksdb.
             kv_snap,
+            to_store_id: self.to_store_id,
         };
         box_try!(region_sched.schedule(snapshot));
         Ok(())
@@ -3080,25 +3093,46 @@ impl Debug for GenSnapTask {
 }
 
 #[derive(Debug)]
+enum ObserverType {
+    Cdc(ObserveHandle),
+    Rts(ObserveHandle),
+    Pitr(ObserveHandle),
+}
+
+impl ObserverType {
+    fn handle(&self) -> &ObserveHandle {
+        match self {
+            ObserverType::Cdc(h) => h,
+            ObserverType::Rts(h) => h,
+            ObserverType::Pitr(h) => h,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ChangeObserver {
-    cdc_id: Option<ObserveHandle>,
-    rts_id: Option<ObserveHandle>,
+    ty: ObserverType,
     region_id: u64,
 }
 
 impl ChangeObserver {
     pub fn from_cdc(region_id: u64, id: ObserveHandle) -> Self {
         Self {
-            cdc_id: Some(id),
-            rts_id: None,
+            ty: ObserverType::Cdc(id),
             region_id,
         }
     }
 
     pub fn from_rts(region_id: u64, id: ObserveHandle) -> Self {
         Self {
-            cdc_id: None,
-            rts_id: Some(id),
+            ty: ObserverType::Rts(id),
+            region_id,
+        }
+    }
+
+    pub fn from_pitr(region_id: u64, id: ObserveHandle) -> Self {
+        Self {
+            ty: ObserverType::Pitr(id),
             region_id,
         }
     }
@@ -3533,38 +3567,30 @@ where
         region_epoch: RegionEpoch,
         cb: Callback<EK::Snapshot>,
     ) {
-        let ChangeObserver {
-            cdc_id,
-            rts_id,
-            region_id,
-        } = cmd;
+        let ChangeObserver { region_id, ty } = cmd;
 
-        if let Some(ObserveHandle { id, .. }) = cdc_id {
-            if self.delegate.observe_info.cdc_id.id > id {
-                notify_stale_req_with_msg(
-                    self.delegate.term,
-                    format!(
-                        "stale observe id {:?}, current id: {:?}",
-                        id, self.delegate.observe_info.cdc_id.id
-                    ),
-                    cb,
-                );
-                return;
+        let is_stale_cmd = match ty {
+            ObserverType::Cdc(ObserveHandle { id, .. }) => {
+                self.delegate.observe_info.cdc_id.id > id
             }
-        }
-
-        if let Some(ObserveHandle { id, .. }) = rts_id {
-            if self.delegate.observe_info.rts_id.id > id {
-                notify_stale_req_with_msg(
-                    self.delegate.term,
-                    format!(
-                        "stale observe id {:?}, current id: {:?}",
-                        id, self.delegate.observe_info.rts_id.id
-                    ),
-                    cb,
-                );
-                return;
+            ObserverType::Rts(ObserveHandle { id, .. }) => {
+                self.delegate.observe_info.rts_id.id > id
             }
+            ObserverType::Pitr(ObserveHandle { id, .. }) => {
+                self.delegate.observe_info.pitr_id.id > id
+            }
+        };
+        if is_stale_cmd {
+            notify_stale_req_with_msg(
+                self.delegate.term,
+                format!(
+                    "stale observe id {:?}, current id: {:?}",
+                    ty.handle().id,
+                    self.delegate.observe_info.pitr_id.id
+                ),
+                cb,
+            );
+            return;
         }
 
         assert_eq!(self.delegate.region_id(), region_id);
@@ -3600,13 +3626,17 @@ where
             }
         };
 
-        if let Some(id) = cdc_id {
-            self.delegate.observe_info.cdc_id = id;
+        match ty {
+            ObserverType::Cdc(id) => {
+                self.delegate.observe_info.cdc_id = id;
+            }
+            ObserverType::Rts(id) => {
+                self.delegate.observe_info.rts_id = id;
+            }
+            ObserverType::Pitr(id) => {
+                self.delegate.observe_info.pitr_id = id;
+            }
         }
-        if let Some(id) = rts_id {
-            self.delegate.observe_info.rts_id = id;
-        }
-
         cb.invoke_read(resp);
     }
 
@@ -3793,7 +3823,6 @@ where
             }
             update_cfg(&incoming.apply_batch_system);
         }
-        self.apply_ctx.perf_context.start_observe();
     }
 
     fn handle_control(&mut self, control: &mut ControlFsm) -> Option<usize> {
@@ -4267,7 +4296,7 @@ mod tests {
         fn new_for_test(region_id: u64, snap_notifier: SyncSender<RaftSnapshot>) -> GenSnapTask {
             let index = Arc::new(AtomicU64::new(0));
             let canceled = Arc::new(AtomicBool::new(false));
-            Self::new(region_id, index, canceled, snap_notifier)
+            Self::new(region_id, index, canceled, snap_notifier, 0)
         }
     }
 
@@ -5369,6 +5398,100 @@ mod tests {
     }
 
     #[test]
+    fn test_bucket_version_change_in_try_batch() {
+        let (_path, engine) = create_tmp_engine("test-bucket");
+        let (_, importer) = create_tmp_importer("test-bucket");
+        let obs = ApplyObserver::default();
+        let mut host = CoprocessorHost::<KvTestEngine>::default();
+        host.registry
+            .register_query_observer(1, BoxQueryObserver::new(obs));
+
+        let (tx, rx) = mpsc::channel();
+        let (region_scheduler, _) = dummy_scheduler();
+        let sender = Box::new(TestNotifier { tx });
+        let cfg = {
+            let mut cfg = Config::default();
+            cfg.apply_batch_system.pool_size = 1;
+            cfg.apply_batch_system.low_priority_pool_size = 0;
+            Arc::new(VersionTrack::new(cfg))
+        };
+        let (router, mut system) = create_apply_batch_system(&cfg.value());
+        let pending_create_peers = Arc::new(Mutex::new(HashMap::default()));
+        let builder = super::Builder::<KvTestEngine> {
+            tag: "test-store".to_owned(),
+            cfg,
+            sender,
+            region_scheduler,
+            coprocessor_host: host,
+            importer,
+            engine,
+            router: router.clone(),
+            store_id: 1,
+            pending_create_peers,
+        };
+        system.spawn("test-bucket".to_owned(), builder);
+
+        let mut reg = Registration {
+            id: 1,
+            ..Default::default()
+        };
+        reg.region.set_id(1);
+        reg.region.mut_peers().push(new_peer(1, 1));
+        reg.region.set_start_key(b"k1".to_vec());
+        reg.region.set_end_key(b"k2".to_vec());
+        reg.region.mut_region_epoch().set_conf_ver(1);
+        reg.region.mut_region_epoch().set_version(3);
+        router.schedule_task(1, Msg::Registration(reg));
+
+        let entry1 = {
+            let mut entry = EntryBuilder::new(1, 1);
+            entry = entry.put(b"key1", b"value1");
+            entry.epoch(1, 3).build()
+        };
+
+        let entry2 = {
+            let mut entry = EntryBuilder::new(2, 1);
+            entry = entry.put(b"key2", b"value2");
+            entry.epoch(1, 3).build()
+        };
+
+        let (capture_tx, _capture_rx) = mpsc::channel();
+        let mut apply1 = apply(1, 1, 1, vec![entry1], vec![cb(1, 1, capture_tx.clone())]);
+        let bucket_meta = BucketMeta {
+            region_id: 1,
+            region_epoch: RegionEpoch::default(),
+            version: 1,
+            keys: vec![b"".to_vec(), b"".to_vec()],
+            sizes: vec![0, 0],
+        };
+        apply1.bucket_meta = Some(Arc::new(bucket_meta));
+
+        let mut apply2 = apply(1, 1, 1, vec![entry2], vec![cb(2, 1, capture_tx)]);
+        let mut bucket_meta2 = BucketMeta {
+            region_id: 1,
+            region_epoch: RegionEpoch::default(),
+            version: 2,
+            keys: vec![b"".to_vec(), b"".to_vec()],
+            sizes: vec![0, 0],
+        };
+        bucket_meta2.version = 2;
+        apply2.bucket_meta = Some(Arc::new(bucket_meta2));
+
+        router.schedule_task(1, Msg::apply(apply1));
+        router.schedule_task(1, Msg::apply(apply2));
+
+        let res = fetch_apply_res(&rx);
+        let bucket_version = res.bucket_stat.unwrap().as_ref().meta.version;
+
+        assert_eq!(bucket_version, 2);
+
+        validate(&router, 1, |delegate| {
+            let bucket_version = delegate.buckets.as_ref().unwrap().meta.version;
+            assert_eq!(bucket_version, 2);
+        });
+    }
+
+    #[test]
     fn test_cmd_observer() {
         let (_path, engine) = create_tmp_engine("test-delegate");
         let (_import_dir, importer) = create_tmp_importer("test-delegate");
@@ -5444,11 +5567,7 @@ mod tests {
             1,
             Msg::Change {
                 region_epoch: region_epoch.clone(),
-                cmd: ChangeObserver {
-                    cdc_id: Some(observe_handle.clone()),
-                    rts_id: Some(observe_handle.clone()),
-                    region_id: 1,
-                },
+                cmd: ChangeObserver::from_cdc(1, observe_handle.clone()),
                 cb: Callback::Read(Box::new(|resp: ReadResponse<KvTestSnapshot>| {
                     assert!(!resp.response.get_header().has_error());
                     assert!(resp.snapshot.is_some());
@@ -5463,6 +5582,7 @@ mod tests {
         let cmd_batch = cmdbatch_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         assert_eq!(cmd_batch.cdc_id, ObserveHandle::with_id(0).id);
         assert_eq!(cmd_batch.rts_id, ObserveHandle::with_id(0).id);
+        assert_eq!(cmd_batch.pitr_id, ObserveHandle::with_id(0).id);
 
         let (capture_tx, capture_rx) = mpsc::channel();
         let put_entry = EntryBuilder::new(3, 2)
@@ -5484,7 +5604,6 @@ mod tests {
         assert!(!resp.get_header().has_error(), "{:?}", resp);
         let cmd_batch = cmdbatch_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         assert_eq!(cmd_batch.cdc_id, observe_handle.id);
-        assert_eq!(cmd_batch.rts_id, observe_handle.id);
         assert_eq!(resp, cmd_batch.into_iter(1).next().unwrap().response);
 
         let put_entry1 = EntryBuilder::new(4, 2)
@@ -5517,11 +5636,7 @@ mod tests {
             2,
             Msg::Change {
                 region_epoch,
-                cmd: ChangeObserver {
-                    cdc_id: Some(observe_handle.clone()),
-                    rts_id: Some(observe_handle),
-                    region_id: 2,
-                },
+                cmd: ChangeObserver::from_cdc(2, observe_handle),
                 cb: Callback::Read(Box::new(|resp: ReadResponse<_>| {
                     assert!(
                         resp.response
@@ -5693,11 +5808,7 @@ mod tests {
             1,
             Msg::Change {
                 region_epoch: region_epoch.clone(),
-                cmd: ChangeObserver {
-                    cdc_id: Some(observe_handle.clone()),
-                    rts_id: Some(observe_handle.clone()),
-                    region_id: 1,
-                },
+                cmd: ChangeObserver::from_cdc(1, observe_handle.clone()),
                 cb: Callback::Read(Box::new(|resp: ReadResponse<_>| {
                     assert!(!resp.response.get_header().has_error(), "{:?}", resp);
                     assert!(resp.snapshot.is_some());
@@ -5852,11 +5963,7 @@ mod tests {
             1,
             Msg::Change {
                 region_epoch,
-                cmd: ChangeObserver {
-                    cdc_id: Some(observe_handle.clone()),
-                    rts_id: Some(observe_handle),
-                    region_id: 1,
-                },
+                cmd: ChangeObserver::from_cdc(1, observe_handle),
                 cb: Callback::Read(Box::new(move |resp: ReadResponse<_>| {
                     assert!(
                         resp.response.get_header().get_error().has_epoch_not_match(),

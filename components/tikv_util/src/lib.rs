@@ -13,6 +13,7 @@ use std::{
         hash_map::Entry,
         vec_deque::{Iter, VecDeque},
     },
+    convert::AsRef,
     env,
     fs::File,
     ops::{Deref, DerefMut},
@@ -30,6 +31,8 @@ use nix::{
     unistd::{fork, ForkResult},
 };
 use rand::rngs::ThreadRng;
+
+use crate::sys::thread::StdThreadBuildWrapper;
 
 #[macro_use]
 pub mod log;
@@ -340,6 +343,20 @@ impl<L, R> Either<L, R> {
     }
 }
 
+impl<L, R, T> AsRef<T> for Either<L, R>
+where
+    T: ?Sized,
+    L: AsRef<T>,
+    R: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        match self {
+            Self::Left(l) => l.as_ref(),
+            Self::Right(r) => r.as_ref(),
+        }
+    }
+}
+
 /// A simple ring queue with fixed capacity.
 pub struct RingQueue<T> {
     buf: VecDeque<T>,
@@ -453,7 +470,7 @@ pub fn set_panic_hook(panic_abort: bool, data_dir: &str) {
     // Caching is slow, spawn it in another thread to speed up.
     thread::Builder::new()
         .name(thd_name!("backtrace-loader"))
-        .spawn(::backtrace::Backtrace::new)
+        .spawn_wrapper(::backtrace::Backtrace::new)
         .unwrap();
 
     let data_dir = data_dir.to_string();
