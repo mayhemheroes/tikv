@@ -1,4 +1,4 @@
-FROM fuzzers/cargo-fuzz:0.10.0 as builder
+FROM rustlang/rust:nightly AS builder
 
 ## Install build dependencies.
 RUN apt-get update && \
@@ -7,7 +7,6 @@ RUN apt-get update && \
 # copy source
 ADD . /tikv
 WORKDIR /tikv
-RUN rustup toolchain install nightly
 
 # use template file to generate fuzzer source for each target
 WORKDIR /tikv/fuzz/fuzzer-libfuzzer
@@ -17,7 +16,8 @@ RUN for i in $(sed -rn "s/pub fn (fuzz_\w+)\(.*/\1/p" ../targets/mod.rs); do \
     done
 
 # build all the fuzzers
-RUN RUSTFLAGS="--cfg fuzzing \
+RUN rustup target add x86_64-unknown-linux-gnu && \
+    RUSTFLAGS="--cfg fuzzing \
          -C codegen-units=1 \
          -C incremental=fuzz-incremental \
          -C passes=sancov-module \
@@ -30,7 +30,7 @@ RUN RUSTFLAGS="--cfg fuzzing \
          -C debuginfo=0 \
          -C opt-level=3 \
          -Z sanitizer=address" \
-    ASAN_OPTIONS=" detect_odr_violation=0" \
+    ASAN_OPTIONS="detect_odr_violation=0" \
     cargo build --target x86_64-unknown-linux-gnu --bins
 
 FROM ubuntu:20.04
